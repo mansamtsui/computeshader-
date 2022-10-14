@@ -1,0 +1,63 @@
+//// Each #kernel tells which function to compile; you can have many kernels
+//#pragma kernel CSMain
+//
+//// Create a RenderTexture with enableRandomWrite flag and set it
+//// with cs.SetTexture
+//RWTexture2D<float4> Result;
+//
+//[numthreads(8,8,1)]
+//void CSMain (uint3 id : SV_DispatchThreadID)
+//{
+//    // TODO: insert actual code here!
+//
+//    Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+//}
+
+
+
+//定义computeShader的主要计算函数，这个函数会在c#层去绑定
+//每一个computeShader可以有一个或者多个这样的定义，但是必须至少有一个
+#pragma kernel CSMain
+
+//线程组的define，对应c#里面调用ComputeShader.Dispatch方法里线程组的相关参数
+#define thread_group_x 2
+#define thread_group_y 2
+#define thread_group_z 1
+
+//每一个线程组里的线程定义，我们可以认为一个线程组是由x,y,z三维的线程数目来定义的
+//下面这样的定义表示：一个线程组包括8*4*1个线程
+#define thread_x 8
+#define thread_y 4
+#define thread_z 1
+
+//线程组 * 每组线程数 = 所有数据并行执行的数量
+//128个数需要计算= 2*2*1（线程组）* 8*4*1（每组线程数）= 4 * 32 = 128
+
+//数据结构的定义
+struct MixData
+{
+    int myVal;
+    float myFloat;
+};
+
+//传入数据的封装，它与c#层的的ComputeShader.SetBuffer方法相对应，c#层把数据准备好
+//之后传入这个buffer里。c#层方法的名字参数必须与下面的变量的名字一致
+RWStructuredBuffer<MixData> inOutBuffer;
+
+//一个线程组里所包含的线程数量结构，其中x = 8, y = 4, z = 1
+[numthreads(8, 4, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    //Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+    //这里的idx是指我要算出当前处理的线程对应在数据里的索引，找到索引后就能对应的修改buffer里的数据了
+    int idx = id.x + (id.y * thread_group_x * thread_x) + (id.z * thread_group_x * thread_x * thread_group_y * thread_y);
+    MixData d;
+    d.myFloat = inOutBuffer[idx].myFloat + 1.0;
+    d.myVal = inOutBuffer[idx].myVal;
+
+    //修改我们想要修改的数据
+    inOutBuffer[idx] = d;
+
+
+}

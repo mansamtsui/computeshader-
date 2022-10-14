@@ -1,0 +1,70 @@
+﻿//声明Kernel方法，每个ComputerShader至少包括一个Kernel方法
+#pragma kernel WaveKernel
+
+//HLSL中用于存储数据，可读可写的buffer，此处用来存储位置
+RWStructuredBuffer<float3> _Positions;
+
+uint _Resolution;
+
+float _Step, _Time;
+
+#define PI 3.14159265358979323846
+
+//波函数，用来计算点的位置
+float3 Wave(float u, float v, float t) {
+	float3 p;
+	p.x = u;
+	p.y = sin(PI * (u + v + t));
+	p.z = v;
+	return p;
+}
+
+float2 GetPositionXZ(uint3 id)
+{
+	//用当前执行的第几个线程3维序号标识xy，进行运算得出需要计算的模型的坐标xz
+
+
+	return (id.xy + 0.5) * _Step - 1.0;// 为什么这样得到xz
+}
+
+void SetPosition(uint3 id, float3 position) 
+{
+	if (id.x < _Resolution && id.y < _Resolution) 
+	{
+		// 相当于这个  _Positions[id.x + id.y * _Resolution / 8 * 8 + id.z * _Resolution / 8 * 8 * _Resolution / 8 * 8] = position;
+		_Positions[id.x + id.y * _Resolution] = position;
+	}
+}
+
+/*
+//线程组的define，对应c#里面调用ComputeShader.Dispatch方法里线程组的相关参数
+#define thread_group_x _Resolution/8
+#define thread_group_y _Resolution/8
+#define thread_group_z 1
+
+//每一个线程组里的线程定义，我们可以认为一个线程组是由x,y,z三维的线程数目来定义的
+//下面这样的定义表示：一个线程组包括8*8*1个线程
+#define thread_x 8
+#define thread_y 8
+#define thread_z 1
+
+//这里的idx是指我要算出当前处理的线程对应在数据里的索引，找到索引后就能对应的修改buffer里的数据了
+	int idx = id.x + (id.y * thread_group_x * thread_x) + (id.z * thread_group_x * thread_x * thread_group_y * thread_y);
+	
+	thread_group_x * thread_x     _Resolution/8 * 8 = _Resolution
+	因为当前thread_group_z = 1，thread_z = 1，,就只是1个z的维度，所以id.z自然就是0 (id.z * thread_group_x * thread_x * thread_group_y * thread_y) = 0
+	所以_Positions[id.x + id.y * _Resolution]  就是成立的，其实相当于上面的计算序号方式，就是算到对应数据数组中第几个被计算的结果，是属于第几个线程计算的
+	SV_GroupIndex = SV_GroupThreadID.x + SV_GroupThreadID.y * thread_x + SV_GroupThreadID.z * thread_x * thread_y   ==== 相当于3个维度  x, y, z
+
+	这个相当于SV_GroupIndex  是当前组第几个序号的线程，再乘上  thread_group_x和thread_group_y 就是所有组中，这个线程的序号，就是我们想要的这个线程计算的结果，
+*/
+
+//[numthreads(x,y,z)] 线程组，总的线程数 = x * y * z
+//SV_DispatchThreadID 线程id标识  = SV_GroupID * 一个线程组的规格(numthreads) + SV_GroupThreadID(这个是第几个线程)
+[numthreads(8,8,1)]
+void WaveKernel(uint3 id : SV_DispatchThreadID)
+{
+	float2 positionXZ = GetPositionXZ(id);
+	float3 position = Wave(positionXZ.x, positionXZ.y, _Time);
+	SetPosition(id, position);
+}

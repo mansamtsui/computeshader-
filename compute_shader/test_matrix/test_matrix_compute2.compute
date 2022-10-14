@@ -1,0 +1,66 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+/*
+4 * 4 矩阵为例
+
+有16个结果，每个结果需要 8 个数 分 4次相乘
+分开16个线程组，每组4个线程，每个线程执行一次相乘，把结果加上到当前组id的数据实行累加
+16组线程执行完毕，返回16个结果，按顺序填入结果矩阵
+
+*/
+
+#define thread_x 4
+#define thread_y 1
+#define thread_z 1
+
+#define thread_group_x thread_x * thread_x
+#define thread_group_y 1
+#define thread_group_z 1
+
+
+struct Multip
+{
+    float a;
+    float b;
+    float multi;
+};
+
+RWStructuredBuffer<Multip> inputRawData;//64个数据
+RWStructuredBuffer<float> outputBuffer;//16个结果
+
+
+/*
+* 目标是求 SV_GroupID  就知道当前执行的组id，通过判定x维度，就知道当前是第几组，就是第几个结果[1,1,1], [2,1,1] , [3,1,1]
+* 
+SV_DispatchThreadID = SV_GroupID  *  一个线程组的规格(numthreads)  +  SV_GroupThreadID
+SV_GroupID = (SV_DispatchThreadID - SV_GroupThreadID) / 一个线程组的规格(numthreads)
+
+//第二组的第二个线程执行时
+SV_DispatchThreadID = ([1,0,0] * [4,1,1]) + (1,0,0) = (5,0,0)
+
+当前这个线程在组里面的序号，当这个序号是最后一个线程，例如 4个线程一组，如果是3，就是这组最后一个线程
+SV_GroupIndex = SV_GroupThreadID.z * numthreads_x * numthreads_y + SV_GroupThreadID.y * numthreads_x + SV_GroupThreadID.x
+
+*/
+
+
+[numthreads(thread_x, thread_y, thread_z)]
+void CSMain (uint3 groupThreadID : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
+{
+    uint3 _groupId = uint3((id.x - groupThreadID.x) / thread_x, (id.y - groupThreadID.y) / thread_y, (id.z - groupThreadID.z) / thread_z);
+    uint _groupIndex = groupThreadID.z * thread_x * thread_y + groupThreadID.y * thread_x + groupThreadID.x;
+
+    int idx = id.x + (id.y * thread_group_x * thread_x) + (id.z * thread_group_x * thread_x * thread_group_y * thread_y);
+    float multipVal = inputRawData[idx].a * inputRawData[idx].b;
+    inputRawData[idx].multi = multipVal;
+
+    if (_groupIndex + 1 == thread_x) {//由于使用单个维度，所以就是这样判定，当前线程是否组内最后一个
+        //最后一个执行递归累加组内所有线程的结果，然后设置组结果值，避免共享内存数据竞争
+        float add = 0;
+        for (int i = idx; i > idx - thread_x; i--) {
+            add += inputRawData[i].multi;
+        }
+        outputBuffer[_groupId.x] = add;
+    }
+}
